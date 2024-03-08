@@ -1,8 +1,8 @@
-# A star algorithm has to be implemented as the basedline heuristic of the agent
-#  ******************************************************************************
-#  ******************************************************************************
-#  ******************************************************************************
-#  ******************************************************************************
+# A* algorithm has to be implemented as the basedline heuristic of the agent
+# ******************************************************************************
+# ******************************************************************************
+# ******************************************************************************
+# ******************************************************************************
 import environments_fully_observable 
 import environments_partially_observable
 import numpy as np
@@ -14,11 +14,9 @@ tf.random.set_seed(0)
 random.seed(0)
 np.random.seed(0)
 
-import queue
 import heapq
 
 import copy
-import time
 
 def display_boards(env, n=5):
     
@@ -160,15 +158,21 @@ class Heuristic_Agent:
 
     def execute2(self, iteration):
         i = 0
+
+        rewards = np.zeros(self.env.n_boards, dtype=float)
+
         # create an array of empty arrays with the size of the boards
         paths = [[] for _ in range(self.env.n_boards)]
-        print("size of paths: ", len(paths))
         while i < iteration:
+            i += 1
             paths = self.approaching_fruit_policy2(paths)
-            # print paths that are still empty
-            if len([path for path in paths if len(path) == 0]) != 0:
-                print(paths)
-                display_boards(self.env, 10)
+            # paths that are still empty (the snake has to eat itself)
+            indices = [j for j, path in enumerate(paths) if len(path) == 0]
+            for j in indices:
+                # take a random action for the empty array from [UP, DOWN, LEFT, RIGHT]
+                paths[j] = [random.choice([self.env.UP, self.env.DOWN, self.env.LEFT, self.env.RIGHT])]
+
             actions = np.array([path.pop(0) for path in paths]).reshape(-1,1)
-            self.env.move(actions)
+            rewards = np.add(rewards, self.env.move(actions))
         display_boards(self.env, 10)
+        print("rewards: ", rewards)
