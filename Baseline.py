@@ -3,19 +3,13 @@
 # ******************************************************************************
 # ******************************************************************************
 # ******************************************************************************
-import environments_fully_observable 
-import environments_partially_observable
 import numpy as np
-from  tqdm import trange
 import matplotlib.pyplot as plt
 import random
-import tensorflow as tf
-tf.random.set_seed(0)
 random.seed(0)
 np.random.seed(0)
 
 import heapq
-
 import copy
 
 def display_boards(env, n=5):
@@ -27,9 +21,6 @@ def display_boards(env, n=5):
         ax.imshow(board, origin="lower")
 
 
-
-# A* algorithm of finding the path up to the fruit
-
 class A_star_node:
     
     def __init__(self, position, cost, heuristic, parent, body, action = None):
@@ -40,18 +31,21 @@ class A_star_node:
         self.body = body
         self.action = action
         
-
     def __lt__(self, other):
         return self.cost + self.heuristic < other.cost + other.heuristic
     
     def __getitem__(self, key):
         return getattr(self, key, None)
 
+
+
 class Heuristic_Agent:
     
     def __init__(self, env):
         self.env = env            
         self.directions = {(1, 0): self.env.UP, (-1, 0): self.env.DOWN, (0, 1): self.env.RIGHT, (0, -1): self.env.LEFT}
+    
+    # create an array of forbidden cells (walls and body)
     def forbidden_cells(self, body):
         walls = np.argwhere(self.env.boards[0] == self.env.WALL)
         if len(body) == 0:
@@ -62,15 +56,17 @@ class Heuristic_Agent:
             
         return forbidden
 
+
+    # position of body after taking an action
     def one_step_body(self, body, head):
         new_body = copy.deepcopy(body)
         if len(new_body) > 0:
-            # add head as the first element of the body
             new_body = np.insert(new_body, 0, head[1:], axis=0)
-            # remove the last element of the body as tail
             new_body = np.delete(new_body, -1, axis=0)
         return new_body
 
+
+    # get allowed neighbors of a position
     def get_neighbors(self, node, idx):
         # Get valid neighbors of a position
         neighbors = []
@@ -85,6 +81,7 @@ class Heuristic_Agent:
 
         return neighbors 
 
+    # heuristic function
     def heuristic(self, position, goal, body):
         distance_to_goal = abs(position[0] - goal[0]) + abs(position[1] - goal[1])
         if tuple(position) in  [tuple(cell) for cell in body]:
@@ -92,6 +89,8 @@ class Heuristic_Agent:
                 distance_to_goal += (len(body) ** 2)       
         return distance_to_goal
 
+
+    # a* search algorithm using heapq, returns a list of actions for each board until achieving the fruit
     def a_star_search(self, start, goal, idx):
         openset = []
         closed_set = set()
@@ -118,22 +117,9 @@ class Heuristic_Agent:
                     if neighbor_node not in openset:
                     
                         heapq.heappush(openset, neighbor_node)
-        return []  
+        return [random.choice([self.env.UP, self.env.DOWN, self.env.LEFT, self.env.RIGHT])]  
     
-
-    def approaching_fruit_policy(self):
-        fruits = np.argwhere(self.env.boards == self.env.FRUIT)
-        heads = np.argwhere(self.env.boards == self.env.HEAD)
-        selected_actions = np.zeros((self.env.n_boards, 1))
-
-        for i in range(len(self.env.boards)):
-            head = tuple(heads[i][1:])
-            fruit = tuple(fruits[i][1:])
-            path = self.a_star_search(head, fruit, idx=i)
-            if path and len(path) >= 1:
-                selected_actions[i] = path[0]
-        return path
-
+    # approaching fruit policy using a*
     def approaching_fruit_policy2(self, paths):
         fruits = np.argwhere(self.env.boards == self.env.FRUIT)
         heads = np.argwhere(self.env.boards == self.env.HEAD)
@@ -148,14 +134,7 @@ class Heuristic_Agent:
             paths[i] = path
         return paths    
 
-    def execute(self, iteration):
-        i = 0
-        while i < iteration:
-            actions = np.array(self.approaching_fruit_policy())
-            print(actions)
-            self.env.move(actions)
-        display_boards(self.env, 10)
-
+    # execution of A* algorithm
     def execute2(self, iteration):
         i = 0
 
@@ -166,12 +145,6 @@ class Heuristic_Agent:
         while i < iteration:
             i += 1
             paths = self.approaching_fruit_policy2(paths)
-            # paths that are still empty (the snake has to eat itself)
-            indices = [j for j, path in enumerate(paths) if len(path) == 0]
-            for j in indices:
-                # take a random action for the empty array from [UP, DOWN, LEFT, RIGHT]
-                paths[j] = [random.choice([self.env.UP, self.env.DOWN, self.env.LEFT, self.env.RIGHT])]
-
             actions = np.array([path.pop(0) for path in paths]).reshape(-1,1)
             rewards = np.add(rewards, self.env.move(actions))
         display_boards(self.env, 10)
