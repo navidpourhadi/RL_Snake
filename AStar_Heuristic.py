@@ -5,12 +5,9 @@
 # ******************************************************************************
 import numpy as np
 import matplotlib.pyplot as plt
-import random
-random.seed(0)
+import heapq
 np.random.seed(0)
 
-import heapq
-import copy
 
 def display_boards(env, n=5):
     
@@ -57,13 +54,9 @@ class Heuristic_Agent:
         return forbidden
 
 
-    # position of body after taking an action
+    # the body of the snake in one step ahead
     def one_step_body(self, body, head):
-        new_body = copy.deepcopy(body)
-        if len(new_body) > 0:
-            new_body = np.insert(new_body, 0, head[1:], axis=0)
-            new_body = np.delete(new_body, -1, axis=0)
-        return new_body
+        return np.insert(body, 0, head[1:], axis=0)[:-1] if len(body) > 0 else body
 
 
     # get allowed neighbors of a position
@@ -117,10 +110,10 @@ class Heuristic_Agent:
                     if neighbor_node not in openset:
                     
                         heapq.heappush(openset, neighbor_node)
-        return [random.choice([self.env.UP, self.env.DOWN, self.env.LEFT, self.env.RIGHT])]  
+        return [np.random.choice([self.env.UP, self.env.DOWN, self.env.LEFT, self.env.RIGHT])]  
     
     # approaching fruit policy using a*
-    def approaching_fruit_policy2(self, paths):
+    def approaching_fruit_policy(self, paths):
         fruits = np.argwhere(self.env.boards == self.env.FRUIT)
         heads = np.argwhere(self.env.boards == self.env.HEAD)
         
@@ -130,21 +123,18 @@ class Heuristic_Agent:
             head = tuple(heads[i][1:])
             fruit = tuple(fruits[i][1:])
             path = self.a_star_search(head, fruit, idx=i)
-            # add the actions inside the path into the empty array at index i
             paths[i] = path
         return paths    
 
     # execution of A* algorithm
-    def execute2(self, iteration):
+    def execute(self, iteration):
         i = 0
-
         rewards = np.zeros(self.env.n_boards, dtype=float)
-
         # create an array of empty arrays with the size of the boards
         paths = [[] for _ in range(self.env.n_boards)]
         while i < iteration:
             i += 1
-            paths = self.approaching_fruit_policy2(paths)
+            paths = self.approaching_fruit_policy(paths)
             actions = np.array([path.pop(0) for path in paths]).reshape(-1,1)
             rewards = np.add(rewards, self.env.move(actions))
         display_boards(self.env, 10)
