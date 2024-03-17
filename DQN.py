@@ -10,13 +10,6 @@ from tensorflow.keras.callbacks import LearningRateScheduler
 WEIGHT_PATH = "./weights/"
 
 
-def lr_schedule(epoch, lr):
-    # Example learning rate decay schedule
-    if epoch < 50:
-        return lr
-    else:
-        return lr * tf.math.exp(-0.1)
-
 def display_boards(env, n=5):
     
     fig,axs=plt.subplots(1,min(len(env.boards), n), figsize=(5,5))
@@ -29,9 +22,9 @@ class QModel(tf.keras.Model):
     def __init__(self, input_shape, num_actions):
         super(QModel, self).__init__()
         self.conv1 = tf.keras.layers.Conv2D(32, (3, 3), activation='relu', padding='same', input_shape=input_shape)
-        self.conv2 = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', padding='same')        
+        self.conv2 = tf.keras.layers.Conv2D(128, (3, 3), activation='relu', padding='same')        
         self.flatten = tf.keras.layers.Flatten()
-        self.dense1 = tf.keras.layers.Dense(256, activation='relu', kernel_regularizer=regularizers.l2(0.01))
+        self.dense1 = tf.keras.layers.Dense(512, activation='relu', kernel_regularizer=regularizers.l2(0.01))
         self.output_layer = tf.keras.layers.Dense(num_actions, activation='linear')
 
     def call(self, inputs):
@@ -43,20 +36,6 @@ class QModel(tf.keras.Model):
             x = self.dense1(x)
             return self.output_layer(x)
         
-class QModel2(tf.keras.Model):
-    def __init__(self, input_shape, num_actions):
-        super(QModel2, self).__init__()
-        self.flatten = tf.keras.layers.Flatten(input_shape= input_shape)
-        self.dense1 = tf.keras.layers.Dense(128, activation='relu')
-        self.dense2 = tf.keras.layers.Dense(256, activation='relu', kernel_regularizer=regularizers.l2(0.01))
-        self.output_layer = tf.keras.layers.Dense(num_actions, activation='linear')
-
-    def call(self, inputs):
-        x = self.flatten(inputs)
-        x = self.dense1(x)
-        x = self.dense2(x)
-        return self.output_layer(x)    
-
 
 class DQNAgent:
     def __init__(self, input_shape, num_actions, gamma=0.9, max_buffer_size = 50000, epsilon_initial=1.0, epsilon_final=0.1, epsilon_decay=0.95):
@@ -69,8 +48,7 @@ class DQNAgent:
         self.q_model = QModel(input_shape, num_actions)
         self.target_q_model = QModel(input_shape, num_actions)
         self.target_q_model.set_weights(self.q_model.get_weights())
-        self.learning_rate = 1e-4
-        self.optimizer_q = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
+        self.optimizer_q = tf.keras.optimizers.Adam(learning_rate=1e-4)
         self.mse = tf.keras.losses.MeanSquaredError()
         self.replay_buffer = {
             'states': [],
@@ -161,8 +139,6 @@ class DQNAgent:
                 max_q_values = np.amax(non_terminal_q_values, axis=1, keepdims=True)
                 targets[non_terminal_indices] += self.gamma * max_q_values
 
-            # shape: (batch_size, 1) : reward of the current state and the max expected reward of the next state
-            # targets = rewards + self.gamma * tf.reduce_max(self.target_q_model(next_states), axis=1, keepdims=True)
             with tf.GradientTape() as tape:
                 q_values = tf.gather(self.q_model(states), actions, axis=1, batch_dims=1)
                 loss = self.mse(q_values, targets)
@@ -180,12 +156,10 @@ class DQNAgent:
 
     def save_weights(self, q_model_path):
         self.q_model.save_weights(q_model_path)
-        # self.v_model.save_weights(v_model_path)
 
     def load_weights(self, q_model_path):
         try :
             self.q_model.load_weights(q_model_path)
-            # self.v_model.load_weights(v_model_path)
         except:
             print("The weights do not exist")
             return
@@ -194,8 +168,6 @@ class DQNAgent:
     def train(self, env, num_epochs, batch_size):
         with tf.device('/GPU:0'): 
             for epoch in range(num_epochs):
-                self.learning_rate = lr_schedule(epoch, self.learning_rate)
-                self.optimizer_q = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
                 state = env.to_state()
                 fruit_location_before = np.argwhere(env.boards == env.FRUIT)
                 actions = self.select_actions_softmax(state).reshape(-1, 1)
