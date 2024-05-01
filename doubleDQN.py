@@ -3,42 +3,45 @@ from tqdm import trange
 import numpy as np
 import utils
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Conv2D, Flatten, Dense, MaxPooling2D
+from tensorflow.keras.layers import Conv2D, Flatten, Dense, MaxPooling2D, Dropout
 from tensorflow.keras import regularizers
 import time
 from collections import deque
 import random
 
 WEIGHT_PATH = "./weights/"
+MAX_BUFFER_SIZE = 20000
+
 
 class DoubleDQNAgent:
-    def __init__(self, input_shape, num_actions, gamma=0.9, max_buffer_size=10000, epsilon_initial=1.0, epsilon_final=0.1, epsilon_decay=0.999):
+    def __init__(self, input_shape, num_actions, gamma=0.9, epsilon_initial=1.0, epsilon_final=0.1, epsilon_decay=0.99, lr_initial=1e-4):
         self.input_shape = input_shape
         self.epsilon = epsilon_initial
         self.epsilon_final = epsilon_final
         self.epsilon_decay = epsilon_decay
-        self.max_buffer_size = max_buffer_size
         self.gamma = gamma
         self.num_actions = num_actions
+        self.lr_initial = lr_initial
         self.q_model = self.build_q_model(input_shape, num_actions)
         self.target_q_model = self.build_q_model(input_shape, num_actions)
         self.target_q_model.set_weights(self.q_model.get_weights())
-        self.optimizer_q = tf.keras.optimizers.Adam(learning_rate=1e-4)
+        self.optimizer_q = tf.keras.optimizers.Adam(learning_rate=self.lr_initial)
         self.mse = tf.keras.losses.MeanSquaredError()
-        self.replay_buffer = deque(maxlen=max_buffer_size)
+        self.replay_buffer = deque(maxlen=MAX_BUFFER_SIZE)
 
         print(self.q_model.summary())
 
 
     def build_q_model(self, input_shape, num_actions):
         model = Sequential([
-            Conv2D(32, (3, 3), activation='relu', input_shape=input_shape),
+            Conv2D(64, (3, 3), activation='relu', input_shape=input_shape),
             MaxPooling2D((2, 2), strides=2),
             Conv2D(128, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.01)),
             MaxPooling2D((2, 2), strides=2),
             Conv2D(128, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.01)),
+            Dropout(0.2),
             Flatten(),
-            Dense(128, activation='relu', kernel_regularizer=regularizers.l2(0.01)),
+            Dense(256, activation='relu', kernel_regularizer=regularizers.l2(0.01)),
             Dense(num_actions, activation='linear')
         ])
         return model
@@ -118,6 +121,8 @@ class DoubleDQNAgent:
     def train(self, env, num_epochs, batch_size):
         for epoch in range(num_epochs):
             T1 = time.time()
+            # self.update_learning_rate(epoch)
+
             states = env.to_state()
             # actions = np.array([self.select_actions_exploration([state])[0] for state in states]).reshape(-1,1)
             actions = self.select_actions_exploration(states).reshape(-1, 1)
@@ -129,6 +134,7 @@ class DoubleDQNAgent:
                 self.store_transition(states[i], actions[i], rewards[i], next_states[i], done)
             self.experience_replay_q(batch_size)
             T2 = time.time()
+            
             print("Epoch: {}/{} | Epsilon: {:.3f} | Time: {:.3f}s".format(epoch + 1, num_epochs, self.epsilon, T2 - T1))
             # print("Epoch: {}/{} | Epsilon: {:.3f}".format(epoch + 1, num_epochs, self.epsilon))
 
@@ -170,6 +176,7 @@ class DoubleDQNAgent:
             reward = env.move(actions)
 
             rewards = rewards + reward
-            print("Step: {}/{} | Reward: {:.3f}".format(_, steps, np.mean(rewards)))
-
-            utils.display_boards(env, 5)            
+            if _ % 10 == 0:
+                print("Step: {}/{} | Reward: {:.3f}".format(_, steps, np.mean(rewards)))
+                utils.display_boards(env, 5)
+        print("Mean Reward: {:.3f}".format(np.mean(rewards)))                
