@@ -10,7 +10,7 @@ from collections import deque
 import random
 
 WEIGHT_PATH = "./weights/"
-MAX_BUFFER_SIZE = 20000
+MAX_BUFFER_SIZE = 50000
 
 
 class DoubleDQNAgent:
@@ -34,14 +34,13 @@ class DoubleDQNAgent:
 
     def build_q_model(self, input_shape, num_actions):
         model = Sequential([
-            Conv2D(64, (3, 3), activation='relu', input_shape=input_shape),
+            Conv2D(64, (3, 3), activation='relu', input_shape=input_shape, kernel_regularizer=regularizers.l2(0.05)),
             MaxPooling2D((2, 2), strides=2),
-            Conv2D(128, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.01)),
-            MaxPooling2D((2, 2), strides=2),
-            Conv2D(128, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.01)),
-            Dropout(0.2),
+            Conv2D(128, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.05)),
+            # MaxPooling2D((2, 2), strides=2),
+            Conv2D(128, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.05)),
             Flatten(),
-            Dense(256, activation='relu', kernel_regularizer=regularizers.l2(0.01)),
+            Dense(256, activation='relu', kernel_regularizer=regularizers.l2(0.05)),
             Dense(num_actions, activation='linear')
         ])
         return model
@@ -74,6 +73,15 @@ class DoubleDQNAgent:
 
     def experience_replay_q(self, batch_size):
         batch = random.sample(self.replay_buffer, min(batch_size, len(self.replay_buffer)))
+
+
+        # priorities = np.array([abs(reward) + 1e-5 for _, _, reward, _, _ in self.replay_buffer])
+        # probabilities = priorities / np.sum(priorities)
+        # probabilities = probabilities.flatten()
+        # # Sample based on probabilities
+        # indices = np.random.choice(len(self.replay_buffer), batch_size, p=probabilities)
+        # batch = [self.replay_buffer[idx] for idx in indices]
+
         states, actions, rewards, next_states, dones = zip(*batch)
 
         states = np.array(states)
@@ -86,10 +94,13 @@ class DoubleDQNAgent:
 
         non_terminal_indices = np.where(dones == 0)[0]
         if len(non_terminal_indices) > 0:
+            # print("non terminal indices: ", len(non_terminal_indices))
             non_terminal_next_states = next_states[non_terminal_indices]
-            target_q_values = self.target_q_model.predict(non_terminal_next_states, verbose=0)
             max_actions = np.argmax(self.q_model.predict(non_terminal_next_states, verbose=0), axis=1)
+            target_q_values = self.target_q_model.predict(non_terminal_next_states, verbose=0)            
             targets[non_terminal_indices] += self.gamma * target_q_values[np.arange(len(target_q_values)), max_actions].reshape(-1, 1)
+
+        # print("targets: ", targets)    
 
         with tf.GradientTape() as tape:
             q_values = tf.gather(self.q_model(states), actions, axis=1, batch_dims=1)
@@ -130,7 +141,8 @@ class DoubleDQNAgent:
             next_states = env.to_state()
 
             for i in range(env.n_boards):
-                done = 0 if np.array_equal(states[i], next_states[i]) else 1
+                # done = 0 if np.array_equal(states[i], next_states[i]) else 1
+                done = 1 if rewards[i] > 0 else 0
                 self.store_transition(states[i], actions[i], rewards[i], next_states[i], done)
             self.experience_replay_q(batch_size)
             T2 = time.time()
@@ -176,7 +188,7 @@ class DoubleDQNAgent:
             reward = env.move(actions)
 
             rewards = rewards + reward
-            if _ % 10 == 0:
-                print("Step: {}/{} | Reward: {:.3f}".format(_, steps, np.mean(rewards)))
-                utils.display_boards(env, 5)
+            # if _ % 10 == 0:
+            print("Step: {}/{} | Reward: {:.3f}".format(_, steps, np.mean(rewards)))
+            utils.display_boards(env, 5)
         print("Mean Reward: {:.3f}".format(np.mean(rewards)))                
