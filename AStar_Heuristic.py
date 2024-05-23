@@ -137,5 +137,6 @@ class Heuristic_Agent:
             paths = self.approaching_fruit_policy(paths)
             actions = np.array([path.pop(0) for path in paths]).reshape(-1,1)
             rewards = np.add(rewards, self.env.move(actions))
-        display_boards(self.env, 10)
-        print("rewards: ", rewards)
+        # display_boards(self.env, 10)
+        # print("rewards: ", rewards)
+        return rewards

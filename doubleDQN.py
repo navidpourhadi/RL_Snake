@@ -1,16 +1,28 @@
 import tensorflow as tf
 from tqdm import trange
 import numpy as np
-import utils
 from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Conv2D, Flatten, Dense, MaxPooling2D, Dropout
 from tensorflow.keras import regularizers
 import time
 from collections import deque
 import random
+import matplotlib.pyplot as plt
+
 
 WEIGHT_PATH = "./weights/"
 MAX_BUFFER_SIZE = 50000
+
+
+# function to display the n boards with suptitle
+def display_boards(env, n=5, suptitle=""):
+    
+    fig,axs=plt.subplots(1,min(len(env.boards), n), figsize=(5,5))
+    fig.suptitle(suptitle)
+    for ax, board in zip(axs, env.boards):
+        ax.get_yaxis().set_visible(False)
+        ax.get_xaxis().set_visible(False)
+        ax.imshow(board, origin="lower")
 
 
 class DoubleDQNAgent:
@@ -35,21 +47,21 @@ class DoubleDQNAgent:
     def build_q_model(self, input_shape, num_actions):
         model = Sequential([
             Conv2D(64, (3, 3), activation='relu', input_shape=input_shape, kernel_regularizer=regularizers.l2(0.05)),
-            MaxPooling2D((2, 2), strides=2),
             Conv2D(128, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.05)),
-            # MaxPooling2D((2, 2), strides=2),
             Conv2D(128, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.05)),
             Flatten(),
             Dense(256, activation='relu', kernel_regularizer=regularizers.l2(0.05)),
             Dense(num_actions, activation='linear')
         ])
         return model
+    
 
-
+    # this function will update the epsilon value with some decay
     def update_epsilon(self):
         self.epsilon = max(self.epsilon_final, self.epsilon * self.epsilon_decay)
 
 
+    # actions will be selected based on the q_model
     def select_actions_exploration(self, states):
         self.update_epsilon()
         random_actions = np.random.randint(0, self.num_actions, size=len(states))
@@ -57,13 +69,10 @@ class DoubleDQNAgent:
         mask = np.random.rand(len(states)) < self.epsilon
         actions = np.where(mask, random_actions, greedy_actions)
         return actions
+    
 
     def select_actions_exploitation(self, states):
         actions = np.argmax(self.q_model.predict(states, verbose=0), axis=1)
-        return actions
-
-    def select_actions_exploitation_target(self, states):
-        actions = np.argmax(self.target_q_model.predict(states, verbose=0), axis=1)
         return actions
 
 
@@ -73,14 +82,6 @@ class DoubleDQNAgent:
 
     def experience_replay_q(self, batch_size):
         batch = random.sample(self.replay_buffer, min(batch_size, len(self.replay_buffer)))
-
-
-        # priorities = np.array([abs(reward) + 1e-5 for _, _, reward, _, _ in self.replay_buffer])
-        # probabilities = priorities / np.sum(priorities)
-        # probabilities = probabilities.flatten()
-        # # Sample based on probabilities
-        # indices = np.random.choice(len(self.replay_buffer), batch_size, p=probabilities)
-        # batch = [self.replay_buffer[idx] for idx in indices]
 
         states, actions, rewards, next_states, dones = zip(*batch)
 
@@ -100,7 +101,6 @@ class DoubleDQNAgent:
             target_q_values = self.target_q_model.predict(non_terminal_next_states, verbose=0)            
             targets[non_terminal_indices] += self.gamma * target_q_values[np.arange(len(target_q_values)), max_actions].reshape(-1, 1)
 
-        # print("targets: ", targets)    
 
         with tf.GradientTape() as tape:
             q_values = tf.gather(self.q_model(states), actions, axis=1, batch_dims=1)
@@ -114,81 +114,58 @@ class DoubleDQNAgent:
 
 
 
-    def save_weights(self, file_prefix="ddqn_"):
-        q_model_path = WEIGHT_PATH + file_prefix + str(self.input_shape[0]) +"_q_model.h5"
-        target_q_model_path = WEIGHT_PATH + file_prefix + str(self.input_shape[0]) +"_target_q_model.h5"
-        self.q_model.save_weights(q_model_path)
-        self.target_q_model.save_weights(target_q_model_path)
-        print("Weights saved.")
-
-    def load_weights(self, file_prefix="ddqn_"):
-        q_model_path = WEIGHT_PATH + file_prefix + str(self.input_shape[0]) + "_q_model.h5"
-        target_q_model_path = WEIGHT_PATH + file_prefix + str(self.input_shape[0]) +"_target_q_model.h5"
-        self.q_model.load_weights(q_model_path)
-        self.target_q_model.load_weights(target_q_model_path)
-        print("Weights loaded.")
-
 
     def train(self, env, num_epochs, batch_size):
         for epoch in range(num_epochs):
             T1 = time.time()
-            # self.update_learning_rate(epoch)
 
             states = env.to_state()
-            # actions = np.array([self.select_actions_exploration([state])[0] for state in states]).reshape(-1,1)
             actions = self.select_actions_exploration(states).reshape(-1, 1)
             rewards = env.move(actions)
             next_states = env.to_state()
 
             for i in range(env.n_boards):
-                # done = 0 if np.array_equal(states[i], next_states[i]) else 1
                 done = 1 if rewards[i] > 0 else 0
                 self.store_transition(states[i], actions[i], rewards[i], next_states[i], done)
             self.experience_replay_q(batch_size)
             T2 = time.time()
             
             print("Epoch: {}/{} | Epsilon: {:.3f} | Time: {:.3f}s".format(epoch + 1, num_epochs, self.epsilon, T2 - T1))
-            # print("Epoch: {}/{} | Epsilon: {:.3f}".format(epoch + 1, num_epochs, self.epsilon))
 
             if (epoch + 1) % 20 == 0:
                 self.update_target_q_model()
 
-        self.save_weights("Temp_DDQN")        
 
 
-    def play(self, env, steps=1000):
-
-        ask_loading = input("DO you want to load the final weights of the model for the play? (y/n): ")
-
-        if ask_loading == "y":
-            file_name_prefix = input("Enter the weight file name prefix:  (e.g. filename: 'Temp_DDQN_15_dqn_model.h5' then prefix: 'Temp_DDQN') ")
-            self.load_weights(file_name_prefix)
-
+    def play(self, env, steps=1000, log_flag = False):
         rewards = np.zeros(env.n_boards, dtype=float)[:, None]
 
         for _ in trange(steps):
             states = env.to_state()
-            # actions = [self.select_actions_exploitation([state])[0] for state in states].reshape(-1, 1)
             actions = self.select_actions_exploitation(states).reshape(-1, 1)
             reward = env.move(actions)
 
             rewards = rewards + reward
-            print("Step: {}/{} | Reward: {:.3f}".format(_, steps, np.mean(rewards)))
-            utils.display_boards(env, 5)
+            if _ % 10 == 0 and log_flag:
+                print("Step: {}/{} | Reward: {:.3f}".format(_, steps, np.mean(rewards)))
+                display_boards(env, 5, suptitle="DDQN => Epoch: {}/{} | Reward: {:.3f}".format(_, steps, np.mean(rewards)))
+        return rewards
 
 
-    def play_target(self, env, steps=1000):
-        # fruits = np.zeros(env.n_boards, dtype=int)
-        rewards = np.zeros(env.n_boards, dtype=float)[:, None]
 
-        for _ in trange(steps):
-            states = env.to_state()
-            # actions = [self.select_actions_exploitation([state])[0] for state in states].reshape(-1, 1)
-            actions = self.select_actions_exploitation_target(states).reshape(-1, 1)
-            reward = env.move(actions)
 
-            rewards = rewards + reward
-            # if _ % 10 == 0:
-            print("Step: {}/{} | Reward: {:.3f}".format(_, steps, np.mean(rewards)))
-            utils.display_boards(env, 5)
-        print("Mean Reward: {:.3f}".format(np.mean(rewards)))                
+    def save_weights(self, file_prefix):
+        # file prefix should be the size of the environment board size
+        # file_prefix = input("Enter file name prefix to be saved (_DDQN_q_model.h5 or _DDQN_target_q_model.h5 will be added at the end) : ")
+        q_model_path = WEIGHT_PATH + file_prefix +"_DDQN_q_model.h5"
+        target_q_model_path = WEIGHT_PATH + file_prefix +"_DDQN_target_q_model.h5"
+        self.q_model.save_weights(q_model_path)
+        self.target_q_model.save_weights(target_q_model_path)
+        print("Weights saved.")
+
+    def load_weights(self, file_prefix):     # file_prefix means the name before _q_model.h5 or _target_q_model.h5
+        q_model_path = WEIGHT_PATH + file_prefix + "_DDQN_q_model.h5"
+        target_q_model_path = WEIGHT_PATH + file_prefix +"_DDQN_target_q_model.h5"
+        self.q_model.load_weights(q_model_path)
+        self.target_q_model.load_weights(target_q_model_path)
+        print("Weights loaded.")
